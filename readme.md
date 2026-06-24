@@ -8,17 +8,17 @@ sequenceDiagram
     participant Vouch as Vouch
     participant User as 用户
 
-    App->>Vouch: GET /verify?email=
-    Vouch->>User: 发送验证邮件
-    Vouch-->>App: { token }
+    App-&gt;&gt;Vouch: GET /verify?email=
+    Vouch-&gt;&gt;User: 发送验证邮件
+    Vouch--&gt;&gt;App: { token }
     loop 每 3～5 秒轮询
-        App->>Vouch: GET /check?token=&email=
-        Vouch-->>App: { status: pending }
+        App-&gt;&gt;Vouch: GET /check?token=&email=
+        Vouch--&gt;&gt;App: { status: pending }
     end
-    User->>Vouch: GET /confirm?token= (点击邮件链接)
-    App->>Vouch: GET /check?token=&email=
-    Vouch-->>App: { status: approved }
-    App->>App: 继续注册
+    User-&gt;&gt;Vouch: GET /confirm?token= (点击邮件链接)
+    App-&gt;&gt;Vouch: GET /check?token=&email=
+    Vouch--&gt;&gt;App: { status: approved }
+    App-&gt;&gt;App: 继续注册
 ```
 
 
@@ -93,17 +93,17 @@ sequenceDiagram
 << `curl "https://vouch.yourdomain.com/verify?email=user@example.com"`
 
 
->> `{ "token": "550e8400-e29b-41d4-a716-446655440000" }`
+&gt;&gt; `{ "token": "550e8400-e29b-41d4-a716-446655440000" }`
 
 **轮询状态**
 
 << `curl "https://vouch.yourdomain.com/check?token=550e8400-e29b-41d4-a716-446655440000&email=user@example.com"`
 
->> `{ "status": "pending", "email": "user@example.com" }`
+&gt;&gt; `{ "status": "pending", "email": "user@example.com" }`
 
 用户点击邮件中的链接后：
 
->> `{ "status": "approved", "email": "user@example.com" }`
+&gt;&gt; `{ "status": "approved", "email": "user@example.com" }`
 
 **前端轮询示例（JavaScript）**
 
@@ -135,8 +135,6 @@ async function waitForVerification(token, email) {
 
 
 常见错误：`400 missing_email` · `429 too_soon`（60 秒内重复发送）· `404 not_found`（token 与 email 不匹配）
-
-详细参数与响应见 [DESIGN.md](./DESIGN.md#api-参考)。
 
 ---
 
