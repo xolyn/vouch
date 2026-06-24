@@ -90,29 +90,20 @@ sequenceDiagram
 
 **发起验证**
 
-```bash
-curl "https://vouch.yourdomain.com/verify?email=user@example.com"
-```
+<< `curl "https://vouch.yourdomain.com/verify?email=user@example.com"`
 
-```json
-{ "token": "550e8400-e29b-41d4-a716-446655440000" }
-```
+
+>> `{ "token": "550e8400-e29b-41d4-a716-446655440000" }`
 
 **轮询状态**
 
-```bash
-curl "https://vouch.yourdomain.com/check?token=550e8400-e29b-41d4-a716-446655440000&email=user@example.com"
-```
+<< `curl "https://vouch.yourdomain.com/check?token=550e8400-e29b-41d4-a716-446655440000&email=user@example.com"`
 
-```json
-{ "status": "pending", "email": "user@example.com" }
-```
+>> `{ "status": "pending", "email": "user@example.com" }`
 
 用户点击邮件中的链接后：
 
-```json
-{ "status": "approved", "email": "user@example.com" }
-```
+>> `{ "status": "approved", "email": "user@example.com" }`
 
 **前端轮询示例（JavaScript）**
 
