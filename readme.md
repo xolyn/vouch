@@ -8,19 +8,18 @@ sequenceDiagram
     participant Vouch as Vouch
     participant User as 用户
 
-    App-&gt;&gt;Vouch: GET /verify?email=
-    Vouch-&gt;&gt;User: 发送验证邮件
-    Vouch--&gt;&gt;App: { token }
+    App->>Vouch: GET /verify?email=
+    Vouch->>User: 发送验证邮件
+    Vouch-->>App: { token }
     loop 每 3～5 秒轮询
-        App-&gt;&gt;Vouch: GET /check?token=&email=
-        Vouch--&gt;&gt;App: { status: pending }
+        App->>Vouch: GET /check?token=&email=
+        Vouch-->>App: { status: pending }
     end
-    User-&gt;&gt;Vouch: GET /confirm?token= (点击邮件链接)
-    App-&gt;&gt;Vouch: GET /check?token=&email=
-    Vouch--&gt;&gt;App: { status: approved }
-    App-&gt;&gt;App: 继续注册
+    User->>Vouch: GET /confirm?token= (点击邮件链接)
+    App->>Vouch: GET /check?token=&email=
+    Vouch-->>App: { status: approved }
+    App->>App: 继续注册
 ```
-
 
 
 ---
