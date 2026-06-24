@@ -67,7 +67,7 @@ sequenceDiagram
 
 ### 3. 部署
 
-把 `[worker.js](./worker.js)` 全部粘贴到 **Edit Code** → **Save and Deploy**。
+把 [worker.js](worker.js) 全部粘贴到 **Edit Code** → **Save and Deploy**。
 
 可选：绑定自定义域名（如 `vouch.yourdomain.com`），邮件里的确认链接会使用调用 `/verify` 时的域名。
 
