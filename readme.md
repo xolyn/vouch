@@ -2,17 +2,26 @@
 
 轻量邮箱验证服务，跑在 Cloudflare Workers 上。你的应用发起验证，Vouch 发魔法链接，用户点邮件确认，你的应用轮询结果——三步接入注册流程。
 
-```
-你的应用          Vouch              用户
-   │                │                  │
-   ├── GET /verify ─► 发邮件 ──────────►│ 收信、点链接
-   │◄── { token }   │                  │
-   ├── GET /check ──►│                  │
-   │◄── approved    │◄── GET /confirm ─┤
-   └── 继续注册     │                  │
+```mermaid
+sequenceDiagram
+    participant App as 你的应用
+    participant Vouch as Vouch
+    participant User as 用户
+
+    App->>Vouch: GET /verify?email=
+    Vouch->>User: 发送验证邮件
+    Vouch-->>App: { token }
+    loop 每 3～5 秒轮询
+        App->>Vouch: GET /check?token=&email=
+        Vouch-->>App: { status: pending }
+    end
+    User->>Vouch: GET /confirm?token= (点击邮件链接)
+    App->>Vouch: GET /check?token=&email=
+    Vouch-->>App: { status: approved }
+    App->>App: 继续注册
 ```
 
-完整设计与实现规范见 [DESIGN.md](./DESIGN.md)。
+
 
 ---
 
@@ -42,21 +51,23 @@
 1. **Workers & Pages → KV** → Create namespace（如 `VOUCH_KV`）
 2. **Workers & Pages → Create Worker** → 命名 `vouch`
 3. **Settings → Bindings** → 添加 KV：
-   - Variable name: `EMAIL_VERIFY_KV`
-   - Namespace: 选刚创建的
+  - Variable name: `EMAIL_VERIFY_KV`
+  - Namespace: 选刚创建的
 
 ### 2. 配置环境变量
 
 **Settings → Variables and Secrets**：
 
-| 变量 | 类型 | 说明 |
-|------|------|------|
-| `RESEND_API_KEY` | Secret | Resend API Key |
-| `FROM_EMAIL` | Text | 已验证发件地址，如 `vouch@yourdomain.com` |
+
+| 变量               | 类型     | 说明                               |
+| ---------------- | ------ | -------------------------------- |
+| `RESEND_API_KEY` | Secret | Resend API Key                   |
+| `FROM_EMAIL`     | Text   | 已验证发件地址，如 `vouch@yourdomain.com` |
+
 
 ### 3. 部署
 
-把 [`worker.js`](./worker.js) 全部粘贴到 **Edit Code** → **Save and Deploy**。
+把 `[worker.js](./worker.js)` 全部粘贴到 **Edit Code** → **Save and Deploy**。
 
 可选：绑定自定义域名（如 `vouch.yourdomain.com`），邮件里的确认链接会使用调用 `/verify` 时的域名。
 
@@ -124,11 +135,13 @@ async function waitForVerification(token, email) {
 
 ### API 一览
 
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| GET | `/verify?email=` | 发起验证，发送邮件，返回 `token` |
-| GET | `/confirm?token=` | 用户点击邮件链接（浏览器访问，返回 HTML） |
-| GET | `/check?token=&email=` | 轮询验证状态 |
+
+| 方法  | 路径                     | 用途                      |
+| --- | ---------------------- | ----------------------- |
+| GET | `/verify?email=`       | 发起验证，发送邮件，返回 `token`    |
+| GET | `/confirm?token=`      | 用户点击邮件链接（浏览器访问，返回 HTML） |
+| GET | `/check?token=&email=` | 轮询验证状态                  |
+
 
 常见错误：`400 missing_email` · `429 too_soon`（60 秒内重复发送）· `404 not_found`（token 与 email 不匹配）
 
@@ -138,11 +151,13 @@ async function waitForVerification(token, email) {
 
 ## 技术栈
 
-| 层级 | 选择 |
-|------|------|
+
+| 层级  | 选择                 |
+| --- | ------------------ |
 | 运行时 | Cloudflare Workers |
-| 存储 | Cloudflare KV |
-| 邮件 | Resend（BYOK） |
+| 存储  | Cloudflare KV      |
+| 邮件  | Resend（BYOK）       |
+
 
 ---
 
