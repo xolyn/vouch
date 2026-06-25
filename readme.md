@@ -9,18 +9,17 @@ sequenceDiagram
     participant User as 用户
 
     App->>Vouch: GET /verify?email=
-    Vouch->>User: 发送验证邮件
+    Vouch->>User: 发送验证邮件（含 cs）
     Vouch-->>App: { token }
     loop 每 3～5 秒轮询
         App->>Vouch: GET /check?token=&email=
         Vouch-->>App: { status: pending }
     end
-    User->>Vouch: GET /confirm?token= (点击邮件链接)
+    User->>Vouch: GET /confirm?cs= (点击邮件链接)
     App->>Vouch: GET /check?token=&email=
     Vouch-->>App: { status: approved }
     App->>App: 继续注册
 ```
-
 
 ---
 
@@ -34,7 +33,7 @@ sequenceDiagram
 
 **零依赖、全球分布** — 单文件、无 npm 包，部署在全球边缘节点。对个人项目和 side project 来说，延迟低、运维成本接近零。
 
-**够用且安全** — Cloudflare Workers + KV + Resend 免费额度对个人项目完全够用；内置 60 秒/email 限流、`crypto.randomUUID()` token、`/check` 需同时匹配 token 与 email，降低滥发和枚举风险。
+**够用且安全** — Cloudflare Workers + KV + Resend 免费额度对个人项目完全够用。双凭证设计：`token` 仅用于轮询，`cs` 仅出现在邮件链接里，前端拿到 `token` 也无法 curl 绕过邮箱验证；另含 60 秒/email 限流、`/check` 需同时匹配 token 与 email。
 
 ---
 
@@ -50,23 +49,21 @@ sequenceDiagram
 1. **Workers & Pages → KV** → Create namespace（如 `VOUCH_KV`）
 2. **Workers & Pages → Create Worker** → 命名 `vouch`
 3. **Settings → Bindings** → 添加 KV：
-  - Variable name: `EMAIL_VERIFY_KV`
-  - Namespace: 选刚创建的
+   - Variable name: `EMAIL_VERIFY_KV`
+   - Namespace: 选刚创建的
 
 ### 2. 配置环境变量
 
 **Settings → Variables and Secrets**：
 
-
-| 变量               | 类型     | 说明                               |
-| ---------------- | ------ | -------------------------------- |
-| `RESEND_API_KEY` | Secret | Resend API Key                   |
-| `FROM_EMAIL`     | Text   | 已验证发件地址，如 `vouch@yourdomain.com` |
-
+| 变量 | 类型 | 说明 |
+|------|------|------|
+| `RESEND_API_KEY` | Secret | Resend API Key |
+| `FROM_EMAIL` | Text | 已验证发件地址，如 `vouch@yourdomain.com` |
 
 ### 3. 部署
 
-把 [worker.js](worker.js) 全部粘贴到 **Edit Code** → **Save and Deploy**。
+把 [`worker.js`](./worker.js) 全部粘贴到 **Edit Code** → **Save and Deploy**。
 
 可选：绑定自定义域名（如 `vouch.yourdomain.com`），邮件里的确认链接会使用调用 `/verify` 时的域名。
 
@@ -85,24 +82,35 @@ sequenceDiagram
 6. status === "expired"    → 展示「重新发送」按钮
 ```
 
+用户点击邮件中的 `/confirm?cs=...` 链接后，轮询才会得到 `approved`。`cs` 不会出现在 API 响应里。
+
 ### 示例
 
 **发起验证**
 
-<< `curl "https://vouch.yourdomain.com/verify?email=user@example.com"`
+```bash
+curl "https://vouch.yourdomain.com/verify?email=user@example.com"
+```
 
-
-&gt;&gt; `{ "token": "550e8400-e29b-41d4-a716-446655440000" }`
+```json
+{ "token": "550e8400-e29b-41d4-a716-446655440000" }
+```
 
 **轮询状态**
 
-<< `curl "https://vouch.yourdomain.com/check?token=550e8400-e29b-41d4-a716-446655440000&email=user@example.com"`
+```bash
+curl "https://vouch.yourdomain.com/check?token=550e8400-e29b-41d4-a716-446655440000&email=user@example.com"
+```
 
-&gt;&gt; `{ "status": "pending", "email": "user@example.com" }`
+```json
+{ "status": "pending", "email": "user@example.com" }
+```
 
-用户点击邮件中的链接后：
+用户点击邮件链接后：
 
-&gt;&gt; `{ "status": "approved", "email": "user@example.com" }`
+```json
+{ "status": "approved", "email": "user@example.com" }
+```
 
 **前端轮询示例（JavaScript）**
 
@@ -125,13 +133,11 @@ async function waitForVerification(token, email) {
 
 ### API 一览
 
-
-| 方法  | 路径                     | 用途                      |
-| --- | ---------------------- | ----------------------- |
-| GET | `/verify?email=`       | 发起验证，发送邮件，返回 `token`    |
-| GET | `/confirm?token=`      | 用户点击邮件链接（浏览器访问，返回 HTML） |
-| GET | `/check?token=&email=` | 轮询验证状态                  |
-
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| GET | `/verify?email=` | 发起验证，发送邮件，返回 `token` |
+| GET | `/confirm?cs=` | 用户点击邮件链接（浏览器访问，返回 HTML） |
+| GET | `/check?token=&email=` | 轮询验证状态 |
 
 常见错误：`400 missing_email` · `429 too_soon`（60 秒内重复发送）· `404 not_found`（token 与 email 不匹配）
 
@@ -139,13 +145,11 @@ async function waitForVerification(token, email) {
 
 ## 技术栈
 
-
-| 层级  | 选择                 |
-| --- | ------------------ |
+| 层级 | 选择 |
+|------|------|
 | 运行时 | Cloudflare Workers |
-| 存储  | Cloudflare KV      |
-| 邮件  | Resend（BYOK）       |
-
+| 存储 | Cloudflare KV |
+| 邮件 | Resend（BYOK） |
 
 ---
 

@@ -62,16 +62,18 @@ async function handleVerify(request, env) {
   }
 
   const token = crypto.randomUUID();
+  const cs = crypto.randomUUID();
   const expiresAt = Date.now() + 10 * 60 * 1000;
   const record = { email, status: "pending", expiresAt };
 
   await env.EMAIL_VERIFY_KV.put(token, JSON.stringify(record), {
     expirationTtl: 660,
   });
+  await env.EMAIL_VERIFY_KV.put("cs:" + cs, token, { expirationTtl: 660 });
   await env.EMAIL_VERIFY_KV.put(rateLimitKey, "1", { expirationTtl: 60 });
 
   const origin = new URL(request.url).origin;
-  const confirmUrl = `${origin}/confirm?token=${token}`;
+  const confirmUrl = `${origin}/confirm?cs=${cs}`;
 
   const emailRes = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -95,7 +97,12 @@ async function handleVerify(request, env) {
 }
 
 async function handleConfirm(request, env) {
-  const token = new URL(request.url).searchParams.get("token");
+  const cs = new URL(request.url).searchParams.get("cs");
+  if (!cs) {
+    return htmlPage("链接无效或已过期", 410);
+  }
+
+  const token = await env.EMAIL_VERIFY_KV.get("cs:" + cs);
   if (!token) {
     return htmlPage("链接无效或已过期", 410);
   }
