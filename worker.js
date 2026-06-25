@@ -18,7 +18,7 @@ function htmlPage(message, status = 200) {
 </head>
 <body>
   <header>
-    <p style="font-family: Inter, sans-serif; font-weight: bold;">Vouch</p>
+    <p style="font-family: Inter, Helvetica, sans-serif; font-weight: bold;">Vouch</p>
   </header>
   <main>
     <p>${message}</p>
@@ -50,12 +50,19 @@ function buildEmailHtml(confirmUrl) {
 }
 
 async function handleVerify(request, env) {
-  const email = new URL(request.url).searchParams.get("email");
+  const params = new URL(request.url).searchParams;
+  const email = params.get("email");
+  const service = params.get("service");
+
   if (!email) {
     return json({ error: "missing_email" }, 400);
   }
 
-  const rateLimitKey = "rl:" + email;
+  if (!service) {
+    return json({ error: "missing_service" }, 400);
+  }
+
+  const rateLimitKey = "rl:" + service + ":" + email;
   const rateLimited = await env.EMAIL_VERIFY_KV.get(rateLimitKey);
   if (rateLimited) {
     return json({ error: "too_soon" }, 429);
@@ -64,7 +71,7 @@ async function handleVerify(request, env) {
   const token = crypto.randomUUID();
   const cs = crypto.randomUUID();
   const expiresAt = Date.now() + 10 * 60 * 1000;
-  const record = { email, status: "pending", expiresAt };
+  const record = { email, service, status: "pending", expiresAt };
 
   await env.EMAIL_VERIFY_KV.put(token, JSON.stringify(record), {
     expirationTtl: 660,
@@ -140,6 +147,7 @@ async function handleCheck(request, env) {
   const params = new URL(request.url).searchParams;
   const token = params.get("token");
   const email = params.get("email");
+  const service = params.get("service");
 
   if (!token) {
     return json({ error: "missing_token" }, 400);
@@ -149,6 +157,10 @@ async function handleCheck(request, env) {
     return json({ error: "missing_email" }, 400);
   }
 
+  if (!service) {
+    return json({ error: "missing_service" }, 400);
+  }
+
   const raw = await env.EMAIL_VERIFY_KV.get(token);
   if (!raw) {
     return json({ status: "expired" });
@@ -156,7 +168,7 @@ async function handleCheck(request, env) {
 
   const data = JSON.parse(raw);
 
-  if (data.email !== email) {
+  if (data.email !== email || data.service !== service) {
     return json({ error: "not_found" }, 404);
   }
 
@@ -164,7 +176,7 @@ async function handleCheck(request, env) {
     return json({ status: "expired" });
   }
 
-  return json({ status: data.status, email: data.email });
+  return json({ status: data.status, email: data.email, service: data.service });
 }
 
 export default {

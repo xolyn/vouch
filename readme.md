@@ -4,21 +4,21 @@
 
 ```mermaid
 sequenceDiagram
-    participant App as 你的应用
+    participant App as 你的后端
     participant Vouch as Vouch
     participant User as 用户
 
-    App->>Vouch: GET /verify?email=
+    App->>Vouch: GET /verify?email=&service=
     Vouch->>User: 发送验证邮件（含 cs）
     Vouch-->>App: { token }
     loop 每 3～5 秒轮询
-        App->>Vouch: GET /check?token=&email=
+        App->>Vouch: GET /check?token=&email=&service=
         Vouch-->>App: { status: pending }
     end
     User->>Vouch: GET /confirm?cs= (点击邮件链接)
-    App->>Vouch: GET /check?token=&email=
+    App->>Vouch: GET /check?token=&email=&service=
     Vouch-->>App: { status: approved }
-    App->>App: 继续注册
+    App->>App: 注册接口校验通过后创建账号
 ```
 
 ---
@@ -27,13 +27,13 @@ sequenceDiagram
 
 **简单上手** — 整个项目只有一个 `worker.js`。复制到 Cloudflare Workers 控制台，绑定 KV、填两个环境变量，就能跑。不需要 Wrangler、不需要数据库、不需要维护服务器。
 
-**可集成** — 三个 HTTP 接口，JSON 进 JSON 出。嵌进注册页：用户填邮箱 → 你调 `/verify` → 展示「请查收邮件」→ 轮询 `/check` → `approved` 后继续注册。比验证码更能证明「这个人真的拥有这个邮箱」。
+**可集成** — 三个 HTTP 接口，JSON 进 JSON 出。嵌进注册页：用户填邮箱 → 后端调 `/verify` → 展示「请查收邮件」→ 后端轮询 `/check` → 注册时后端再次确认 `approved`。比验证码更能证明「这个人真的拥有这个邮箱」。
 
-**可自定义（BYOK）** — 自带 Resend API Key 和发件域名。邮件从你的域名发出，品牌、DNS 认证、投递策略都在你手里，不依赖第三方 SaaS 平台代发。
+**多服务隔离** — 通过 `service` 参数区分不同站点/业务（惯例传域名如 `blog.example.com`）。同一邮箱可在不同 service 下独立验证。
 
-**零依赖、全球分布** — 单文件、无 npm 包，部署在全球边缘节点。对个人项目和 side project 来说，延迟低、运维成本接近零。
+**可自定义（BYOK）** — 自带 Resend API Key 和发件域名。邮件从你的域名发出，品牌、DNS 认证、投递策略都在你手里。
 
-**够用且安全** — Cloudflare Workers + KV + Resend 免费额度对个人项目完全够用。双凭证设计：`token` 仅用于轮询，`cs` 仅出现在邮件链接里，前端拿到 `token` 也无法 curl 绕过邮箱验证；另含 60 秒/email 限流、`/check` 需同时匹配 token 与 email。
+**够用且安全** — 双凭证（`token` / `cs`）、按 service 限流、`/check` 需 token + email + service 三重匹配。注册放行必须在**你的后端**完成，不能靠前端判断。
 
 ---
 
@@ -65,81 +65,78 @@ sequenceDiagram
 
 把 [`worker.js`](./worker.js) 全部粘贴到 **Edit Code** → **Save and Deploy**。
 
-可选：绑定自定义域名（如 `vouch.yourdomain.com`），邮件里的确认链接会使用调用 `/verify` 时的域名。
-
 ---
 
 ## 使用指南
+
+### `service` 参数
+
+标识接入的业务/站点，`/verify` 与 `/check` 必填。
+
+- **惯例**：传你的站点域名，不含 `https://`，如 `blog.example.com` （实际代码**不校验格式**，任意字符串均可）
 
 ### 接入注册流程
 
 ```text
 1. 用户在注册表单填写邮箱
-2. 后端调用 GET /verify?email=user@example.com
-3. 保存返回的 token，前端展示「请查收邮件并点击确认链接」
-4. 每 3～5 秒轮询 GET /check?token=<token>&email=<email>
-5. status === "approved"  → 允许继续注册
-6. status === "expired"    → 展示「重新发送」按钮
+2. 后端 GET /verify?email=user@example.com&service=blog.example.com
+3. 后端保存 token，前端展示「请查收邮件」
+4. 后端轮询 GET /check?token=&email=&service=（或封装为自己的 /verify-status）
+5. 用户提交注册 → 注册后端再次确认 approved → 创建账号
+6. expired → 展示「重新发送」
 ```
 
-用户点击邮件中的 `/confirm?cs=...` 链接后，轮询才会得到 `approved`。`cs` 不会出现在 API 响应里。
+
+
+> ### ⚠️ 重要：注册校验在后端
+> **不要在前端根据 `/check` 结果决定是否允许注册。** 前端最多用来展示 UI 状态。
+> `/verify` 和 `/check` 应由你的**后端**调用 Vouch。用户提交注册时，你的注册接口必须自行确认该 email + service 已通过验证（查 session 或再调 `/check`），否则攻击者可以绕过前端直接调注册 API。
 
 ### 示例
 
-**发起验证**
-
 ```bash
-curl "https://vouch.yourdomain.com/verify?email=user@example.com"
-```
+curl "https://vouch.yourdomain.com/verify?email=user@example.com&service=blog.example.com"
+# → { "token": "550e8400-..." }
 
-```json
-{ "token": "550e8400-e29b-41d4-a716-446655440000" }
-```
-
-**轮询状态**
-
-```bash
-curl "https://vouch.yourdomain.com/check?token=550e8400-e29b-41d4-a716-446655440000&email=user@example.com"
-```
-
-```json
-{ "status": "pending", "email": "user@example.com" }
-```
-
-用户点击邮件链接后：
-
-```json
-{ "status": "approved", "email": "user@example.com" }
-```
-
-**前端轮询示例（JavaScript）**
-
-```js
-async function waitForVerification(token, email) {
-  for (let i = 0; i < 120; i++) {
-    const res = await fetch(
-      `https://vouch.yourdomain.com/check?token=${token}&email=${encodeURIComponent(email)}`
-    );
-    const data = await res.json();
-
-    if (data.status === "approved") return true;
-    if (data.status === "expired") return false;
-
-    await new Promise((r) => setTimeout(r, 3000));
-  }
-  return false;
-}
+curl "https://vouch.yourdomain.com/check?token=550e8400-...&email=user@example.com&service=blog.example.com"
+# → { "status": "pending", "email": "...", "service": "blog.example.com" }
+# 用户点邮件后 → { "status": "approved", ... }
 ```
 
 ### API 一览
 
 | 方法 | 路径 | 用途 |
 |------|------|------|
-| GET | `/verify?email=` | 发起验证，发送邮件，返回 `token` |
-| GET | `/confirm?cs=` | 用户点击邮件链接（浏览器访问，返回 HTML） |
-| GET | `/check?token=&email=` | 轮询验证状态 |
+| GET | `/verify?email=&service=` | 发起验证，返回 `token` |
+| GET | `/confirm?cs=` | 用户点击邮件链接（HTML） |
+| GET | `/check?token=&email=&service=` | 轮询验证状态 |
 
-常见错误：`400 missing_email` · `429 too_soon`（60 秒内重复发送）· `404 not_found`（token 与 email 不匹配）
+
+#### 返回体
+- **200 成功**
+```json
+{ "token": "uuid-token" }
+```
+
+- **400** 缺少 email 参数
+```json
+{ "error": "missing_email" }
+```
+
+- **400** 缺少 service 参数
+```json
+{ "error": "missing_service" }
+```
+
+- **429** 60 秒内重复发送（同一 service + email）
+```json
+{ "error": "too_soon" }
+```
+
+- **500** Resend 调用失败
+```json
+{ "error": "email_send_failed" }
+```
 
 ---
 
